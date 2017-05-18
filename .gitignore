@@ -1,0 +1,8 @@
+# Compilation Output
+*.o
+*.output
+*.tab.[ch]
+small-scheme
+
+# Editor files
+.*.sw[po]

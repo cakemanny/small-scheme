@@ -4,7 +4,7 @@ CFLAGS=-std=gnu11 -g -fsanitize=address
 LDFLAGS=
 LDLIBS=
 
-small-scheme: grammar.tab.o lexer.o
+small-scheme: grammar.tab.o lexer.o ast.o runtime.o symbol.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 grammar.tab.c grammar.tab.h: grammar.y
