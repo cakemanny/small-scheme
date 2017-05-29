@@ -6,3 +6,7 @@ small-scheme
 
 # Editor files
 .*.sw[po]
+
+# any temp directories
+tmp/
+
