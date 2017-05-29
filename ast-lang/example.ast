@@ -1,0 +1,37 @@
+
+/* An ast for a lambda calculus */
+Exp =
+  App left:Exp right:Exp
+| Lam param:Symbol body:Exp
+| Var var:Symbol
+| Num num:Symbol
+;
+
+LispVal =
+  LamCalc exp:Exp
+| Let var:Exp init:LispVal body:LispVal
+| Inst exp:Exp sigma:Type sigma_prime:Type
+| Gen
+;
+
+/* should translate into the struct, and relevant constructor functions
+struct Exp;
+typedef struct Exp Exp;
+struct Exp {
+  enum ExpTag {
+  } tag;
+  union {
+    struct {
+      Exp* left;
+      Exp* right;
+    };
+    struct {
+      Symbol param;
+      Exp* body;
+    };
+    struct { Symbol var; };
+    struct { Symbol num; };
+  };
+};
+*/
+

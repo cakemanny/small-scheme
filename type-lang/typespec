@@ -1,0 +1,6 @@
+
+/* App */
+(x : s) in Γ  =>  Γ gives x : s
+
+
+
