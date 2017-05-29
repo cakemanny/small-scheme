@@ -103,7 +103,7 @@ LispVal* eval(Exp* exp)
 {
     // Create initial environment
     // Evaluate using said environment
-    return eval_with_env(exp, 0);
+    return eval_with_env(exp, NULL);
 }
 
 void print_val(FILE* out, LispVal* val)

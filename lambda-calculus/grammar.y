@@ -2,12 +2,15 @@
 #include <stdio.h>
 #include "ast.h"
 #include "runtime.h"
+#include <unistd.h>
 
 /* the function the lexer exports */
 int yylex();
-void yyerror(const char*);
+static void yyerror(const char*);
 
-static Exp* tree = NULL;
+static void evaluate_last_expression(Exp* tree);
+
+int debug_parser = 0;
 
 %}
 
@@ -24,7 +27,9 @@ static Exp* tree = NULL;
 
 %%
 
-prog: exp           { $$ = tree = $1; }
+prog: exp           { evaluate_last_expression($1) }
+    | prog exp      { evaluate_last_expression($2) }
+;
 
 exp:
     '(' exp exp ')'
@@ -48,23 +53,38 @@ exp:
 %%
 
 
-void yyerror(const char* msg)
+static void yyerror(const char* msg)
 {
     fprintf(stderr, "%s\n", msg);
 }
 
 int yywrap() { return 1; }
 
-int main()
+static void evaluate_last_expression(Exp* tree)
 {
-    yyparse();
     if (tree) {
-        print_exp(stdout, tree);
-        fprintf(stdout, "\n");
+        if (debug_parser) {
+            print_exp(stdout, tree);
+            fprintf(stdout, "\n");
+        }
 
         LispVal* result = eval(tree);
         print_val(stdout, result);
         fprintf(stdout, "\n");
+
+        if (isatty(0)) {
+            printf("λ=>");
+        }
+    }
+}
+
+int main()
+{
+    while (!feof(stdin)) {
+        if (isatty(0)) {
+            printf("λ=>");
+        }
+        yyparse();
     }
 }
 
