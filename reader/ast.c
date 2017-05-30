@@ -10,26 +10,30 @@ const char* lv_tagname(LispVal* value)
     return tag_names[value->tag];
 }
 
-LispVal* lisp_atom(Symbol atom)
+static LispVal* lispval(enum LispTag tag)
 {
     LispVal* result = lisp_alloc(sizeof *result);
-    result->tag = LATOM;
+    result->tag = tag;
+    return result;
+}
+
+LispVal* lisp_atom(Symbol atom)
+{
+    LispVal* result = lispval(LATOM);
     result->atom = atom;
     return result;
 }
 
 LispVal* lisp_num(int number)
 {
-    LispVal* result = lisp_alloc(sizeof *result);
-    result->tag = LNUM;
+    LispVal* result = lispval(LNUM);
     result->number = number;
     return result;
 }
 
 LispVal* lisp_cons(LispVal* head, LispVal* tail)
 {
-    LispVal* result = lisp_alloc(sizeof *result);
-    result->tag = LCONS;
+    LispVal* result = lispval(LCONS);
     result->head = head;
     result->tail = tail;
     return result;
@@ -37,10 +41,18 @@ LispVal* lisp_cons(LispVal* head, LispVal* tail)
 
 LispVal* lisp_nil()
 {
-    LispVal* result = lisp_alloc(sizeof *result);
-    result->tag = LNIL;
+    return lispval(LNIL);
+}
+
+LispVal* lisp_lam(LispVal* params, LispVal* body, LispVal* closure)
+{
+    LispVal* result = lispval(LLAM);
+    result->params = params;
+    result->body = body;
+    result->closure = closure;
     return result;
 }
+
 
 void print_lispval(FILE* out, LispVal* value)
 {
@@ -67,6 +79,16 @@ void print_lispval(FILE* out, LispVal* value)
             break;
         case LNIL:
             fprintf(out, "()");
+            break;
+        case LLAM:
+            fprintf(out, "(lambda ");
+            print_lispval(out, value->params);
+            fputc(' ', out);
+            print_lispval(out, value->body);
+            fputc(')', out);
+            break;
+        case LPRIM:
+            fprintf(out, "<primitive>");
             break;
     }
 }

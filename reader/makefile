@@ -6,7 +6,7 @@ LDLIBS=
 
 HEADERS := symbol.h tokens.h ast.h runtime.h
 
-reader: lexer.o reader.o symbol.o runtime.o ast.o
+reader: lexer.o reader.o symbol.o runtime.o ast.o evaluator.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 %.o: %.c $(HEADERS)

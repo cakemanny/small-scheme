@@ -14,8 +14,8 @@ struct LispVal {
         LNUM,
         LCONS,
         LNIL,
-        // LPRIM
-        // LLAM
+        LLAM,
+        LPRIM,
     } tag;
     union {
         Symbol atom; // LATOM
@@ -23,6 +23,11 @@ struct LispVal {
         struct { // LCONS
             LispVal* head;
             LispVal* tail;
+        };
+        struct { // LLAM
+            LispVal* params;
+            LispVal* body;
+            LispVal* closure;
         };
     };
 };
@@ -32,6 +37,7 @@ LispVal* lisp_atom(Symbol atom);
 LispVal* lisp_num(int number);
 LispVal* lisp_cons(LispVal* head, LispVal* tail);
 LispVal* lisp_nil();
+LispVal* lisp_lam(LispVal* params, LispVal* body, LispVal* closure);
 
 void print_lispval(FILE* out, LispVal* value);
 

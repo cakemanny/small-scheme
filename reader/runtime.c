@@ -86,6 +86,7 @@ void collect()
                 next_free_ptr += lv_size;
                 ALIGNPTR(free_ptr);
 
+                // TODO: include branch for lambda values
                 if ((*current)->tag == LCONS) {
                     if (verbose_gc)
                         fprintf(stderr, "it's a cons, follow head, save tail\n");

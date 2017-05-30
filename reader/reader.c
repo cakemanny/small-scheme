@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "reader.h"
 #include "runtime.h"
+#include "evaluator.h"
 
 int debug_lexer = 0;
 
@@ -86,6 +87,8 @@ static LispVal* reader_read()
                     // build the list up from it's tail
                     if (top->tag == LISPVAL) {
                         thelist = lisp_cons(top->sval.value, thelist);
+                    } else {
+                        // TODO: what happens here!
                     }
                 }
                 // push the constructed list back on
@@ -124,7 +127,8 @@ int main(int argc, char** argv)
             exit(EXIT_FAILURE);
         }
     }
-    initialize_heap(1024);
+    initialize_heap(8 * 1024);
+    initialize_evaluator();
     // initialise the reader stack
     reader_stack = calloc(1024, sizeof *reader_stack);
     if (!reader_stack) {
@@ -137,7 +141,10 @@ int main(int argc, char** argv)
         LispVal* value = reader_read();
         if (!value && feof(yyin))
             break;
-        print_lispval(stdout, value);
+        //print_lispval(stdout, value);
+        //printf("\n");
+        LispVal* evaluated = eval(value);
+        print_lispval(stdout, evaluated);
         printf("\n");
     }
 }
