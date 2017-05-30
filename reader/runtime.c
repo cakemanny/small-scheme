@@ -14,9 +14,20 @@ static int heap_idx = 0;
 static void* free_ptr;
 static void* safe_line;
 
+static struct GCStats {
+    long long num_collections;
+    long long total_bytes_allocated;
+    long long total_bytes_retained;
+} gc_stats;
+
 static void collect();
 
 #define ALIGNPTR(x) do { x = (void*)( ((size_t)(x + 7LL)) & -8LL ); } while(0)
+
+void** stack_ref_low; // void** - cast stack as array of ptrs
+void** stack_ref_high;
+void set_stack_high(void** stack_high);
+void set_stack_low(void** stack_low);
 
 void* lisp_alloc(size_t size)
 {
@@ -26,9 +37,15 @@ void* lisp_alloc(size_t size)
                                     mutator about to write anyway */
         free_ptr += size;
         ALIGNPTR(free_ptr);
+
+        gc_stats.total_bytes_allocated += size;
         return result;
     } else {
+        void* dummy = 0;
+        set_stack_low(&dummy); // See comment above set_stack_high in reader.c
         collect();
+        set_stack_low(&dummy);
+
         if (free_ptr + size < heaps[heap_idx] + heap_size) {
             return lisp_alloc(size);
         }
@@ -37,15 +54,34 @@ void* lisp_alloc(size_t size)
     }
 }
 
+static float pct_full()
+{
+    return (float)(free_ptr - heaps[heap_idx]) / ((float)(heap_size));
+}
+
+void print_heap_state()
+{
+    fprintf(stderr, "- heap used: %.2f\n", pct_full());
+    fprintf(stderr, "- num collections: %lld\n", gc_stats.num_collections);
+    double avg_bytes_retainded =
+        ((double)gc_stats.total_bytes_retained)
+            / ((double)gc_stats.num_collections);
+    fprintf(stderr, "- avg heap retained (bytes): %lf\n", avg_bytes_retainded);
+    fprintf(stderr, "- avg heap retained (proportion): %f\n",
+            avg_bytes_retainded / ((double)heap_size));
+}
+
 void mark_safepoint()
 {
     safe_line = free_ptr;
-    float pct_full = (float)(free_ptr - heaps[heap_idx]) / ((float)(heap_size));
     if (verbose_gc) {
-        fprintf(stderr, "%.2f heap used\n", pct_full);
+        fprintf(stderr, "%.2f heap used\n", pct_full());
     }
-    if (pct_full > 0.7f) {
+    if (pct_full() > 0.7f) {
+        void* dummy = 0;
+        set_stack_low(&dummy);
         collect();
+        set_stack_low(&dummy);
     }
 }
 
@@ -58,7 +94,12 @@ typedef struct Trail {
 _Static_assert(sizeof(Trail) <= sizeof(LispVal),
         "Trail must fit in space of a freed LispVal");
 
-static void copy_and_trace_value(LispVal** current, Trail* trail_start);
+static void copy_and_trace_value(
+    LispVal**   current,
+    Trail*      trail_start,
+    LispVal***  rest_of_roots,
+    int         nrest
+);
 
 void collect()
 {
@@ -66,10 +107,14 @@ void collect()
     // 1. Stack Roots
     // 2. Environment root
     // 3. Reader_stack
-    fprintf(stderr, "performing collection\n");
+    if (verbose_gc)
+        fprintf(stderr, "performing collection\n");
 
+    void* old_free_ptr = free_ptr;
     heap_idx = (heap_idx + 1) & 1;
     free_ptr = heaps[heap_idx];
+
+    int num_roots = 0;
 
     // copy anything that is being read by the reader
     // The forms being read by the reader should just be directed-acyclic-trees
@@ -77,42 +122,126 @@ void collect()
     tagged_stype* rs = reader_stack;
     tagged_stype* rsend = rs_ptr;
 
-    int lv_size = sizeof(LispVal);
+
     for (tagged_stype* p = rs; p < rsend; p++) {
         if (p->tag == LISPVAL) {
-            copy_and_trace_value(&p->sval.value, NULL);
-            // Do we do anything here?
+            //copy_and_trace_value(&p->sval.value, NULL);
+            num_roots++;
         }
     }
 
     // Do the same with the global environment
-    copy_and_trace_value(&env, NULL);
+    //copy_and_trace_value(&env, NULL);
+
+    // And now scan our program stack for temporaries in the evaluator
+    int num_heap_items = 0;
+    for (void** it = stack_ref_low; it < stack_ref_high; ++it) {
+        if (*it >= heaps[heap_idx ^ 1] && *it < old_free_ptr) {
+            num_heap_items++;
+
+            // assume this is a LispVal
+            LispVal** lvref = (LispVal**)it;
+            int tag = (*lvref)->tag;
+            if (tag >= 0 && tag <= LPRIM) {
+                fprintf(stderr, "gc: found ref to %s\n", lv_tagname(*lvref));
+                //copy_and_trace_value(lvref, NULL);
+                num_roots++;
+            } else {
+                // It's not a LispVal!
+                // It may be that we should have been tracking where shit
+                // moved to...
+                // We had some aliasing
+                fprintf(stderr, "gc: bad tag: %d (0x%x)\n", tag, tag);
+            }
+        }
+    }
+    fprintf(stderr, "gc: found %d old heap ptrs on stack\n", num_heap_items);
+
+    // Allocate array for roots
+    LispVal*** roots = malloc(num_roots * sizeof(*roots));
+    if (!roots) { perror("out of memory"); abort(); }
+    LispVal*** roots_ptr = roots;
+
+    // collate ptrs from reader stack
+    for (tagged_stype* p = rs; p < rsend; p++) {
+        if (p->tag == LISPVAL) {
+            *roots_ptr++ = &p->sval.value;
+        }
+    }
+    // include global environment
+    *roots_ptr++ = &env;
+    // And the values we found on the stack
+    for (void** it = stack_ref_low; it < stack_ref_high; ++it) {
+        if (*it >= heaps[heap_idx ^ 1] && *it < old_free_ptr) {
+            LispVal** lvref = (LispVal**)it;
+            int tag = (*lvref)->tag;
+            if (tag >= 0 && tag <= LPRIM) {
+                *roots_ptr++ = lvref;
+            }
+        }
+    }
+
+    for (int i = 0; i < num_roots; i++) {
+        // We may have nulled out our ref to aliases that have already been
+        // copied, so skip those
+        if (roots[i] != NULL) {
+            /*
+            * it's possible for any of the other roots to alias part of the tree
+            * pointed to by a different root, so pass a list of other roots to
+            * check for aliasing as we go
+            */
+            LispVal*** rest_of_roots = &roots[i + 1];
+            int rest_of_roots_count = num_roots - i - 1;
+            copy_and_trace_value(roots[i], NULL,
+                    rest_of_roots, rest_of_roots_count);
+        }
+    }
 
     if (verbose_gc) {
         fprintf(stderr, "gc: collection finished\n");
-        float pct_full = (float)(free_ptr - heaps[heap_idx]) / ((float)(heap_size));
-        fprintf(stderr, "%.2f heap used\n", pct_full);
+        fprintf(stderr, "%.2f heap used\n", pct_full());
     }
+    gc_stats.num_collections++;
+    gc_stats.total_bytes_retained += (free_ptr - heaps[heap_idx]);
 }
 
-void copy_and_trace_value(LispVal** current, Trail* trail_start)
+void copy_and_trace_value(
+        LispVal** current, Trail* trail_start,
+        LispVal*** rest_of_roots, int nrest)
 {
     for (;;) {
-        // TODO: check whether this value has already been moved
         if (((void*)*current) > heaps[heap_idx]
                 && ((void*)*current) < free_ptr) {
             fprintf(stderr, "warning: this one has already been moved");
+            // Not sure if to return here or not..
+        }
+        {
+            int tag = (*current)->tag;
+            if (!(tag >= 0 && tag <= LPRIM)) {
+                fprintf(stderr, "gc: bad tag: %d (0x%x)\n", tag, tag);
+                return;
+            }
         }
         // 1. Copy value
         // 2. Copy the things it points to
         memcpy(free_ptr, *current, sizeof **current);
         void* spare_space = *current; /* Save the space we've just freed
                                         for use in this algorithm */
+        // Check for aliasing and update there first
+        for (int i = 0; i < nrest; i++) {
+            if (rest_of_roots[i] && *current == *rest_of_roots[i]) {
+                fprintf(stderr, "found alias for 0x%llx, updating it\n",
+                        (long long)*current);
+                *rest_of_roots[i] = free_ptr;
+                // NULL out the root so we don't try to copy it in the future
+                rest_of_roots[i] = NULL;
+            }
+        }
+
         *current = free_ptr;
         free_ptr += sizeof **current;
         ALIGNPTR(free_ptr);
 
-        // TODO: include branch for lambda values
         if ((*current)->tag == LCONS) {
             if (verbose_gc)
                 fprintf(stderr, "it's a cons, follow head, save tail\n");

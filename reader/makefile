@@ -1,12 +1,12 @@
 
 CC=clang
-CFLAGS=-std=gnu11 -g -fsanitize=address
+CFLAGS=-std=gnu11 -g -Wall # -fsanitize=address
 LDFLAGS=
 LDLIBS=
 
 HEADERS := symbol.h tokens.h ast.h runtime.h
 
-reader: lexer.o reader.o symbol.o runtime.o ast.o evaluator.o
+reader: lexer.o reader.o symbol.o runtime.o ast.o evaluator.o misc.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 %.o: %.c $(HEADERS)

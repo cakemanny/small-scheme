@@ -13,4 +13,7 @@ void initialize_heap(size_t initial_heap_size);
  */
 void mark_safepoint();
 
+// Just to get a print of GC stats
+void print_heap_state();
+
 #endif /* __RUNTIME__AST_H__ */

@@ -77,7 +77,7 @@ static LispVal* reader_read()
                     break;
                 }
 
-                mark_safepoint(); // communicate with the collector
+                //mark_safepoint(); // communicate with the collector
                 // collapse stack into val
                 LispVal* thelist = lisp_nil();
                 tagged_stype* top;
@@ -97,7 +97,7 @@ static LispVal* reader_read()
                 });
                 num_parens--;
 
-                mark_safepoint(); // communicate with the collector
+                //mark_safepoint(); // communicate with the collector
                 break;
             }
             default:
@@ -118,6 +118,9 @@ static LispVal* reader_read()
     return NULL; // End of file
 }
 
+void set_stack_high(void** stack_high);
+void set_stack_low(void** stack_low);
+
 int main(int argc, char** argv)
 {
     if (argc > 1) {
@@ -127,7 +130,7 @@ int main(int argc, char** argv)
             exit(EXIT_FAILURE);
         }
     }
-    initialize_heap(1 * 1024);
+    initialize_heap(4 * 1024);
     initialize_evaluator();
     // initialise the reader stack
     reader_stack = calloc(1024, sizeof *reader_stack);
@@ -136,6 +139,15 @@ int main(int argc, char** argv)
         abort();
     }
     rs_ptr = reader_stack;
+
+    /*
+     * A neat, asm-free way I came up with of safely grabbing some stack
+     * bounds.
+     * set_stack_high and set_stack_low are in a separate module so that
+     * the optimizer can't (assume no LTO) get rid of the stack assignment
+     */
+    void* dummy = 0; // use ptr word to get word alignment
+    set_stack_high(&dummy);
 
     for (;;) {
         LispVal* value = reader_read();
@@ -146,6 +158,9 @@ int main(int argc, char** argv)
         LispVal* evaluated = eval(value);
         print_lispval(stdout, evaluated);
         printf("\n");
+
+        print_heap_state(); // Just to get a print of GC stats
     }
+    set_stack_high(&dummy);
 }
 
