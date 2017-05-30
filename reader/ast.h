@@ -8,6 +8,8 @@
 DECL_STRUCT(LispVal );
 DECL_STRUCT(List    );
 
+typedef LispVal* (*primfunc)(LispVal* /*args*/);
+
 struct LispVal {
     enum LispTag {
         LATOM,
@@ -29,6 +31,7 @@ struct LispVal {
             LispVal* body;
             LispVal* closure;
         };
+        primfunc cfunc; // LPRIM
     };
 };
 
@@ -38,6 +41,7 @@ LispVal* lisp_num(int number);
 LispVal* lisp_cons(LispVal* head, LispVal* tail);
 LispVal* lisp_nil();
 LispVal* lisp_lam(LispVal* params, LispVal* body, LispVal* closure);
+LispVal* lisp_prim(primfunc cfunc);
 
 void print_lispval(FILE* out, LispVal* value);
 

@@ -53,6 +53,13 @@ LispVal* lisp_lam(LispVal* params, LispVal* body, LispVal* closure)
     return result;
 }
 
+LispVal* lisp_prim(primfunc cfunc)
+{
+    LispVal* result = lispval(LPRIM);
+    result->cfunc = cfunc;
+    return result;
+}
+
 
 void print_lispval(FILE* out, LispVal* value)
 {

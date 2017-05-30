@@ -127,7 +127,7 @@ int main(int argc, char** argv)
             exit(EXIT_FAILURE);
         }
     }
-    initialize_heap(8 * 1024);
+    initialize_heap(1 * 1024);
     initialize_evaluator();
     // initialise the reader stack
     reader_stack = calloc(1024, sizeof *reader_stack);

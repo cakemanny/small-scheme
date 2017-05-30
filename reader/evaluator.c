@@ -5,6 +5,19 @@ int debug_evaluator = 1;
 
 LispVal* env;
 
+LispVal* prim_plus(LispVal* args)
+{
+    int result = 0;
+    while (args->tag == LCONS) {
+        if (args->head->tag == LNUM)
+            result += args->head->number;
+        else
+            return lisp_nil();
+        args = args->tail;
+    }
+    return lisp_num(result);
+}
+
 static LispVal* eval_with_env(LispVal* expr, LispVal* env);
 
 static LispVal* apply(LispVal* fn, LispVal* args)
@@ -35,6 +48,8 @@ static LispVal* apply(LispVal* fn, LispVal* args)
         }
         // eval body
         return eval_with_env(fn->body, env_w_bound_args);
+    } else if (fn->tag == LPRIM) {
+        return fn->cfunc(args);
     } else {
         // TODO: return error
         fprintf(stderr, "cannot apply non-lambda: ");
@@ -160,6 +175,11 @@ LispVal* eval(LispVal* expr)
 void initialize_evaluator()
 {
     env = lisp_nil();
-    // TODO: add primitive operations
+    // TODO: add more primitive operations
+    env = lisp_cons(
+            lisp_cons(
+                lisp_atom(sym("+")),
+                lisp_prim(prim_plus)),
+            env);
 }
 
