@@ -18,6 +18,8 @@ struct LispVal {
         LNIL,
         LLAM,
         LPRIM,
+        LBOOL,
+        LERROR,
     } tag;
     union {
         Symbol atom; // LATOM
@@ -32,6 +34,8 @@ struct LispVal {
             LispVal* closure;
         };
         primfunc cfunc; // LPRIM
+        _Bool boolean; // LBOOL
+        const char* error_msg; // LERROR
     };
 };
 
@@ -42,6 +46,8 @@ LispVal* lisp_cons(LispVal* head, LispVal* tail);
 LispVal* lisp_nil();
 LispVal* lisp_lam(LispVal* params, LispVal* body, LispVal* closure);
 LispVal* lisp_prim(primfunc cfunc);
+LispVal* lisp_bool(_Bool boolean);
+LispVal* lisp_err(const char* error_msg);
 
 void print_lispval(FILE* out, LispVal* value);
 

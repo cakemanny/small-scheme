@@ -1,22 +1,9 @@
 #include "evaluator.h"
 #include <assert.h>
 
-int debug_evaluator = 1;
+int debug_evaluator = 0;
 
 LispVal* env;
-
-LispVal* prim_plus(LispVal* args)
-{
-    int result = 0;
-    while (args->tag == LCONS) {
-        if (args->head->tag == LNUM)
-            result += args->head->number;
-        else
-            return lisp_nil();
-        args = args->tail;
-    }
-    return lisp_num(result);
-}
 
 static LispVal* eval_with_env(LispVal* expr, LispVal* env);
 
@@ -91,6 +78,8 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
         case LNIL:
         case LLAM: // The lambda is itself
         case LPRIM: // The lambda is itself
+        case LBOOL:
+        case LERROR:
             return expr;
         case LATOM:
         {
@@ -172,14 +161,99 @@ LispVal* eval(LispVal* expr)
     return eval_with_env(expr, env);
 }
 
+LispVal* prim_plus(LispVal* args)
+{
+    int result = 0;
+    while (args->tag == LCONS) {
+        if (args->head->tag == LNUM)
+            result += args->head->number;
+        else
+            return lisp_nil();
+        args = args->tail;
+    }
+    return lisp_num(result);
+}
+
+LispVal* prim_multiply(LispVal* args)
+{
+    int result = 1;
+    while (args->tag == LCONS) {
+        if (args->head->tag == LNUM)
+            result *= args->head->number;
+        else
+            return lisp_nil();
+        args = args->tail;
+    }
+    return lisp_num(result);
+}
+
+// Assume well formed list
+int list_length(LispVal* list)
+{
+    int result = 0;
+    for (; list->tag != LNIL; list = list->tail)
+        result++;
+    return result;
+}
+
+LispVal* is_atom(LispVal* args)
+{
+    return lisp_bool(args->head->tag == LATOM);
+}
+
+LispVal* is_number(LispVal* args)
+{
+    return lisp_bool(args->head->tag == LNUM);
+}
+
+LispVal* prim_cons(LispVal* args)
+{
+    if (list_length(args) != 2) {
+        return lisp_err("cons: expected 2 args");
+    }
+    return lisp_cons(args->head, args->tail->head);
+}
+LispVal* prim_car(LispVal* args)
+{
+    if (list_length(args) != 1) {
+        return lisp_err("car: expected 1 arg");
+    }
+    if (args->head->tag != LCONS) {
+        return lisp_err("car: invalid type, expected pair");
+    }
+    return args->head->head;
+}
+
+LispVal* prim_cdr(LispVal* args)
+{
+    if (list_length(args) != 1) {
+        return lisp_err("cdr: expected 1 arg");
+    }
+    if (args->head->tag != LCONS) {
+        return lisp_err("cdr: invalid type, expected pair");
+    }
+    return args->head->tail;
+}
+
+LispVal* add_prim(Symbol symbol, primfunc primop, LispVal* env)
+{
+    return lisp_cons(
+            lisp_cons(
+                lisp_atom(symbol),
+                lisp_prim(primop)),
+            env);
+}
+
 void initialize_evaluator()
 {
     env = lisp_nil();
     // TODO: add more primitive operations
-    env = lisp_cons(
-            lisp_cons(
-                lisp_atom(sym("+")),
-                lisp_prim(prim_plus)),
-            env);
+    env = add_prim(sym("+"), prim_plus, env);
+    env = add_prim(sym("*"), prim_multiply, env);
+    env = add_prim(sym("cons"), prim_cons, env);
+    env = add_prim(sym("car"), prim_car, env);
+    env = add_prim(sym("cdr"), prim_cdr, env);
+    env = add_prim(sym("symbol?"), is_atom, env);
+    env = add_prim(sym("number?"), is_number, env);
 }
 

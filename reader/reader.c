@@ -1,10 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "reader.h"
 #include "runtime.h"
 #include "evaluator.h"
 
 int debug_lexer = 0;
+int debug_reader = 0;
 
 extern int yylex();
 extern FILE* yyin;
@@ -14,7 +16,6 @@ union yystype yylval;
 
 tagged_stype* reader_stack;
 tagged_stype* rs_ptr;
-
 
 void push_val(tagged_stype val)
 {
@@ -28,6 +29,19 @@ tagged_stype* pop_val()
     }
     return NULL;
 }
+
+void push_lispval(LispVal* lv)
+{
+    while (rs_ptr > reader_stack && rs_ptr[-1].tag == '\'') {
+        lv = lisp_cons(lisp_atom(sym("quote")), lisp_cons(lv, lisp_nil()));
+        pop_val();
+    }
+    push_val((tagged_stype){
+        .tag = LISPVAL,
+        .sval.value = lv
+    });
+}
+
 
 static LispVal* reader_read()
 {
@@ -50,18 +64,12 @@ static LispVal* reader_read()
             }
             case NUM:
             {
-                push_val((tagged_stype){
-                    .tag = LISPVAL,
-                    .sval.value = lisp_num(atoi(symtext(yylval.id)))
-                });
+                push_lispval(lisp_num(atoi(symtext(yylval.id))));
                 break;
             }
             case VAR:
             {
-                push_val((tagged_stype){
-                    .tag = LISPVAL,
-                    .sval.value = lisp_atom(yylval.id)
-                });
+                push_lispval(lisp_atom(yylval.id));
                 break;
             }
             case '(':
@@ -92,14 +100,15 @@ static LispVal* reader_read()
                     }
                 }
                 // push the constructed list back on
-                push_val((tagged_stype){
-                    .tag = LISPVAL, .sval.value = thelist
-                });
+                push_lispval(thelist);
                 num_parens--;
 
                 //mark_safepoint(); // communicate with the collector
                 break;
             }
+            case '\'':
+                push_val((tagged_stype){ .tag = '\'' });
+                continue;
             default:
                 fprintf(stderr, "%c\n", lexval);
                 break;
@@ -120,14 +129,24 @@ static LispVal* reader_read()
 
 void set_stack_high(void** stack_high);
 void set_stack_low(void** stack_low);
+extern int verbose_gc;
 
 int main(int argc, char** argv)
 {
-    if (argc > 1) {
-        yyin = fopen(argv[1], "r");
-        if (!yyin) {
-            perror(argv[1]);
-            exit(EXIT_FAILURE);
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '-') {
+            if (strcmp(argv[i], "-v") == 0) {
+                verbose_gc = 1;
+                debug_reader = 1;
+            } else {
+                fprintf(stderr, "unknown flag: -%c", argv[i][1]);
+            }
+        } else {
+            yyin = fopen(argv[i], "r");
+            if (!yyin) {
+                perror(argv[i]);
+                exit(EXIT_FAILURE);
+            }
         }
     }
     initialize_heap(4 * 1024);
@@ -159,7 +178,9 @@ int main(int argc, char** argv)
         print_lispval(stdout, evaluated);
         printf("\n");
 
-        print_heap_state(); // Just to get a print of GC stats
+        if (debug_reader) {
+            print_heap_state(); // Just to get a print of GC stats
+        }
     }
     set_stack_high(&dummy);
 }

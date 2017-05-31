@@ -6,7 +6,7 @@
 #include "reader.h"
 #include "evaluator.h"
 
-int verbose_gc = 1;
+int verbose_gc = 0;
 
 static void* heaps[2];
 static int heap_size;
@@ -94,6 +94,36 @@ typedef struct Trail {
 _Static_assert(sizeof(Trail) <= sizeof(LispVal),
         "Trail must fit in space of a freed LispVal");
 
+static struct {
+    int size;
+    int capacity;
+    struct { int from_off; int to_off; } *data;
+} copy_mapping;
+
+static void cm_reset()
+{
+    if (copy_mapping.capacity == 0) {
+        copy_mapping.data = malloc(1024 * 2 * sizeof(int));
+        copy_mapping.capacity = 1024;
+        if (!copy_mapping.data) { perror("out of memory"); abort(); }
+    }
+    copy_mapping.size = 0;
+}
+
+static void cm_add_mapping(int from_off, int to_off)
+{
+    if (copy_mapping.size >= copy_mapping.capacity) {
+        copy_mapping.data =
+            reallocf(copy_mapping.data,
+                    2 * copy_mapping.capacity * 2 * sizeof(int));
+        copy_mapping.capacity *= 2;
+        if (!copy_mapping.data) { perror("out of memory"); abort(); }
+    }
+    copy_mapping.data[copy_mapping.size].from_off = from_off;
+    copy_mapping.data[copy_mapping.size].to_off = to_off;
+    copy_mapping.size += 1;
+}
+
 static void copy_and_trace_value(
     LispVal**   current,
     Trail*      trail_start,
@@ -111,10 +141,10 @@ void collect()
         fprintf(stderr, "performing collection\n");
 
     void* old_free_ptr = free_ptr;
-    heap_idx = (heap_idx + 1) & 1;
+    heap_idx ^= 1; // Flip between 0 and 1
     free_ptr = heaps[heap_idx];
 
-    int num_roots = 0;
+    int num_roots = 1; // 1 for &env - global environment
 
     // copy anything that is being read by the reader
     // The forms being read by the reader should just be directed-acyclic-trees
@@ -125,13 +155,9 @@ void collect()
 
     for (tagged_stype* p = rs; p < rsend; p++) {
         if (p->tag == LISPVAL) {
-            //copy_and_trace_value(&p->sval.value, NULL);
             num_roots++;
         }
     }
-
-    // Do the same with the global environment
-    //copy_and_trace_value(&env, NULL);
 
     // And now scan our program stack for temporaries in the evaluator
     int num_heap_items = 0;
@@ -142,20 +168,16 @@ void collect()
             // assume this is a LispVal
             LispVal** lvref = (LispVal**)it;
             int tag = (*lvref)->tag;
-            if (tag >= 0 && tag <= LPRIM) {
-                fprintf(stderr, "gc: found ref to %s\n", lv_tagname(*lvref));
-                //copy_and_trace_value(lvref, NULL);
+            if (tag >= 0 && tag <= LERROR) {
+                if (verbose_gc)
+                    fprintf(stderr, "gc: found ref to %s\n", lv_tagname(*lvref));
                 num_roots++;
-            } else {
-                // It's not a LispVal!
-                // It may be that we should have been tracking where shit
-                // moved to...
-                // We had some aliasing
-                fprintf(stderr, "gc: bad tag: %d (0x%x)\n", tag, tag);
             }
         }
     }
-    fprintf(stderr, "gc: found %d old heap ptrs on stack\n", num_heap_items);
+    if (verbose_gc) {
+        fprintf(stderr, "gc: found %d old heap ptrs on stack\n", num_heap_items);
+    }
 
     // Allocate array for roots
     LispVal*** roots = malloc(num_roots * sizeof(*roots));
@@ -168,18 +190,20 @@ void collect()
             *roots_ptr++ = &p->sval.value;
         }
     }
-    // include global environment
-    *roots_ptr++ = &env;
     // And the values we found on the stack
     for (void** it = stack_ref_low; it < stack_ref_high; ++it) {
         if (*it >= heaps[heap_idx ^ 1] && *it < old_free_ptr) {
             LispVal** lvref = (LispVal**)it;
             int tag = (*lvref)->tag;
-            if (tag >= 0 && tag <= LPRIM) {
+            if (tag >= 0 && tag <= LERROR) {
                 *roots_ptr++ = lvref;
             }
         }
     }
+    // include global environment
+    *roots_ptr++ = &env;
+
+    cm_reset();
 
     for (int i = 0; i < num_roots; i++) {
         // We may have nulled out our ref to aliases that have already been
@@ -210,69 +234,88 @@ void copy_and_trace_value(
         LispVal*** rest_of_roots, int nrest)
 {
     for (;;) {
-        if (((void*)*current) > heaps[heap_idx]
+        if (((void*)*current) >= heaps[heap_idx]
                 && ((void*)*current) < free_ptr) {
             fprintf(stderr, "warning: this one has already been moved");
             // Not sure if to return here or not..
         }
-        {
-            int tag = (*current)->tag;
-            if (!(tag >= 0 && tag <= LPRIM)) {
-                fprintf(stderr, "gc: bad tag: %d (0x%x)\n", tag, tag);
-                return;
+
+        const int tag = (*current)->tag;
+        if (!(tag >= 0 && tag <= LERROR)) {
+            fprintf(stderr, "gc: bad tag: %d (0x%x)\n", tag, tag);
+
+            // Look up in copy_mapping
+            int offset = ((void*)*current) - heaps[heap_idx ^ 1];
+            int found = 0;
+            for (int i = 0; i < copy_mapping.size; i++) {
+                if (offset == copy_mapping.data[i].from_off) {
+                    *current =
+                        heaps[heap_idx] + copy_mapping.data[i].to_off;
+                    found = 1;
+                    break;
+                }
+            }
+            if (verbose_gc) {
+                if (found) {
+                    fprintf(stderr, "gc: had already been moved but this "
+                            "was an alias\n");
+                } else {
+                    fprintf(stderr, "gc: not found mapping into other heap!\n");
+                }
+            }
+        } else {
+            // 1. Copy value
+            // 2. Copy the things it points to
+            memcpy(free_ptr, *current, sizeof **current);
+
+            // remember where we mapped this address
+            cm_add_mapping(
+                    ((void*)*current) - heaps[heap_idx ^ 1],
+                    free_ptr - heaps[heap_idx]);
+
+            void* spare_space = *current; /* Save the space we've just freed
+                                            for use in this algorithm */
+
+            *current = free_ptr;
+            free_ptr += sizeof **current;
+            ALIGNPTR(free_ptr);
+
+            if (tag == LCONS) {
+                if (verbose_gc)
+                    fprintf(stderr, "it's a cons, follow head, save tail\n");
+                // -- save a pointer to the tail somewhere
+                // we can use the space we just made by copying current
+                // to store a linked list containing the tail pointers
+                // that we need to come back to
+                Trail* trail_head = spare_space;
+                trail_head->val_ptr = &(*current)->tail;
+                trail_head->val_ptr2 = NULL;
+                trail_head->next = trail_start;
+                trail_start = trail_head;
+
+                // stop-copy the head
+                current = &(*current)->head;
+                // Allow us to loop! (would be a recurse in a functional
+                // language)
+                continue;
+            } else if (tag == LLAM) {
+                if (verbose_gc)
+                    fprintf(stderr, "it's a lambda, follow params, save body "
+                            "and closure\n");
+                Trail* trail_head = spare_space;
+                trail_head->val_ptr = &(*current)->body;
+                trail_head->val_ptr2 = &(*current)->closure;
+                trail_head->next = trail_start;
+                trail_start = trail_head;
+
+                // next copy params
+                current = &(*current)->params;
+                // recurse!
+                continue;
             }
         }
-        // 1. Copy value
-        // 2. Copy the things it points to
-        memcpy(free_ptr, *current, sizeof **current);
-        void* spare_space = *current; /* Save the space we've just freed
-                                        for use in this algorithm */
-        // Check for aliasing and update there first
-        for (int i = 0; i < nrest; i++) {
-            if (rest_of_roots[i] && *current == *rest_of_roots[i]) {
-                fprintf(stderr, "found alias for 0x%llx, updating it\n",
-                        (long long)*current);
-                *rest_of_roots[i] = free_ptr;
-                // NULL out the root so we don't try to copy it in the future
-                rest_of_roots[i] = NULL;
-            }
-        }
 
-        *current = free_ptr;
-        free_ptr += sizeof **current;
-        ALIGNPTR(free_ptr);
-
-        if ((*current)->tag == LCONS) {
-            if (verbose_gc)
-                fprintf(stderr, "it's a cons, follow head, save tail\n");
-            // -- save a pointer to the tail somewhere
-            // we can use the space we just made by copying current
-            // to store a linked list containing the tail pointers
-            // that we need to come back to
-            Trail* trail_head = spare_space;
-            trail_head->val_ptr = &(*current)->tail;
-            trail_head->val_ptr2 = NULL;
-            trail_head->next = trail_start;
-            trail_start = trail_head;
-
-            // stop-copy the head
-            current = &(*current)->head;
-            // Allow us to loop! (would be a recurse in a functional
-            // language)
-        } else if ((*current)->tag == LLAM) {
-            if (verbose_gc)
-                fprintf(stderr, "it's a lambda, follow params, save body "
-                        "and closure\n");
-            Trail* trail_head = spare_space;
-            trail_head->val_ptr = &(*current)->body;
-            trail_head->val_ptr2 = &(*current)->closure;
-            trail_head->next = trail_start;
-            trail_start = trail_head;
-
-            // next copy params
-            current = &(*current)->params;
-            // recurse!
-        } else if (trail_start) {
+        if (trail_start) {
             if (verbose_gc)
                 fprintf(stderr, "it's a %s, clean up our saved tails\n",
                     lv_tagname(*current));

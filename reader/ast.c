@@ -60,6 +60,21 @@ LispVal* lisp_prim(primfunc cfunc)
     return result;
 }
 
+LispVal* lisp_bool(_Bool boolean)
+{
+    LispVal* result = lispval(LBOOL);
+    result->boolean = boolean;
+    return result;
+}
+
+LispVal* lisp_err(const char* error_msg)
+{
+    LispVal* result = lispval(LERROR);
+    result->error_msg = error_msg;
+    return result;
+}
+
+
 
 void print_lispval(FILE* out, LispVal* value)
 {
@@ -96,6 +111,12 @@ void print_lispval(FILE* out, LispVal* value)
             break;
         case LPRIM:
             fprintf(out, "<primitive>");
+            break;
+        case LBOOL:
+            fputs((value->boolean) ? "#t" : "#f", out);
+            break;
+        case LERROR:
+            fprintf(out, "error: %s", value->error_msg);
             break;
     }
 }
