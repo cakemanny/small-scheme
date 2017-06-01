@@ -149,14 +149,11 @@ int main(int argc, char** argv)
             }
         }
     }
-    initialize_heap(4 * 1024);
+    initialize_heap(512 * 1024);
     initialize_evaluator();
     // initialise the reader stack
     reader_stack = calloc(1024, sizeof *reader_stack);
-    if (!reader_stack) {
-        perror("out of memory");
-        abort();
-    }
+    if (!reader_stack) { perror("out of memory"); abort(); }
     rs_ptr = reader_stack;
 
     /*
@@ -172,6 +169,8 @@ int main(int argc, char** argv)
         LispVal* value = reader_read();
         if (!value && feof(yyin))
             break;
+        if (!value)
+            continue;
         //print_lispval(stdout, value);
         //printf("\n");
         LispVal* evaluated = eval(value);

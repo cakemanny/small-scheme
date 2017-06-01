@@ -1,9 +1,10 @@
 #include "evaluator.h"
 #include <assert.h>
+#include <string.h>
 
 int debug_evaluator = 0;
 
-LispVal* env;
+LispVal* env; // Global environment
 
 static LispVal* eval_with_env(LispVal* expr, LispVal* env);
 
@@ -21,9 +22,8 @@ static LispVal* apply(LispVal* fn, LispVal* args)
                 p->tag == LCONS || a->tag == LCONS;
                 p = p->tail, a = a->tail) {
             if (p->tag != LCONS || a->tag != LCONS) {
-                fprintf(stderr, "incorrect number of arguments for call "
-                        "to lambda\n");
-                return lisp_nil();
+                return lisp_err("incorrect number of arguments "
+                        "for call to lambda");
             }
             env_w_bound_args =
                 lisp_cons(lisp_cons(p->head, a->head), env_w_bound_args);
@@ -61,6 +61,23 @@ static LispVal* eval_each(LispVal* list, LispVal* env)
         fputs("\n", stderr);
         return lisp_nil();
     }
+}
+
+static _Bool good_list(LispVal* list)
+{
+    for (; list->tag != LNIL; list = list->tail)
+        if (list->tag != LCONS)
+            return 0;
+    return 1;
+}
+
+// Assume well formed list
+static int list_length(LispVal* list)
+{
+    int result = 0;
+    for (; list->tag != LNIL; list = list->tail)
+        result++;
+    return result;
 }
 
 static LispVal* eval_with_env(LispVal* expr, LispVal* env)
@@ -102,52 +119,80 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
         case LCONS:
         {
             // Evaluate a combination
-            LispVal* head = expr->head;
+            LispVal* const head = expr->head;
             if (head->tag == LATOM) {
                 // Check for special forms
                 if (sym_equal(head->atom, sym("lambda"))) {
-                    if (expr->tail->tag != LCONS) {
-                        fprintf(stderr, "bad special form\n");
-                        return lisp_nil();
+                    if (!good_list(expr) || list_length(expr) != 3) {
+                        return lisp_err("bad special form");
                     }
                     LispVal* params = expr->tail->head;
-                    if (params->tag != LCONS && params->tag != LNIL) {
-                        fprintf(stderr, "bad special form: params must be list\n");
-                        return lisp_nil();
+                    if (!good_list(params)) {
+                        return lisp_err("bad special form: params must be list");
                     }
                     for (LispVal* p = params; p->tag != LNIL; p = p->tail) {
-                        if (p->tag != LCONS) {
-                            fprintf(stderr, "bad list\n");
-                            return lisp_nil();
+                        if (p->head->tag != LATOM) {
+                            return lisp_err("bad special form: lambda params"
+                                    "must be atoms");
                         }
-                        LispVal* value = p->head;
-                        if (value->tag != LATOM) {
-                            fprintf(stderr, "bad special form: lambda params"
-                                    "must be atoms\n");
-                            return lisp_nil();
-                        }
-                    }
-                    if (expr->tail->tail->tail->tag != LNIL) {
-                        fprintf(stderr, "too many args to special form: "
-                                "lambda\n");
-                        return lisp_nil();
                     }
                     LispVal* body = expr->tail->tail->head;
-
                     return lisp_lam(params, body, env);
                 } else if (sym_equal(head->atom, sym("quote"))) {
-                    if (expr->tail->tag != LCONS) {
-                        fprintf(stderr, "bad special form\n");
-                        return lisp_nil();
+                    if (!good_list(expr)) {
+                        return lisp_err("bad special form: quote");
                     }
-                    if (expr->tail->tail->tag != LNIL) {
-                        fprintf(stderr, "wrong number of arguments to special "
-                                "form: quote\n");
-                        return lisp_nil();
+                    if (list_length(expr) != 2) {
+                        return lisp_err("wrong number of arguments to special "
+                                "form: quote");
                     }
                     return expr->tail->head;
+                } else if (sym_equal(head->atom, sym("if"))) {
+                    // (if <test> <consequent> <alternate>)
+                    if (!(good_list(expr) && list_length(expr) == 4)) {
+                        return lisp_err("incorrect syntax for if");
+                    }
+                    LispVal* test_result = eval_with_env(expr->tail->head, env);
+                    if (test_result->tag == LBOOL && !test_result->boolean) {
+                        // False
+                        return eval_with_env(expr->tail->tail->tail->head, env);
+                    } else {
+                        return eval_with_env(expr->tail->tail->head, env);
+                    }
+                } else if (sym_equal(head->atom, sym("define"))) {
+                    // (define <variable> <expression>)
+                    // (define (<variable> <formals>) <expression>)
+                    if (!good_list(expr) || list_length(expr) != 3) {
+                        return lisp_err("bad special form: define");
+                    }
+                    if (expr->tail->head->tag == LATOM) {
+                        LispVal* varname = expr->tail->head;
+                        LispVal* value =
+                            eval_with_env(expr->tail->tail->head, env);
+
+                        // save a copy of env, overwrite env with our new
+                        // definition and set the tail to be the saved copy
+                        LispVal* saved_env = lisp_cons(env->head, env->tail);
+                        env->head = lisp_cons(varname, value);
+                        env->tail = saved_env;
+                        return env->head;
+                    }
+                    if (good_list(expr->tail->head)) {
+                        LispVal* var_and_formals = expr->tail->head;
+                        if (var_and_formals->head->tag == LATOM) {
+                            LispVal* lambda =
+                                lisp_cons(lisp_atom(sym("lambda")),
+                                        lisp_cons(var_and_formals->tail,
+                                            expr->tail->tail));
+                            return eval_with_env(
+                                    lisp_cons(head, // define
+                                        lisp_cons(var_and_formals->head, // <var>
+                                            lisp_cons(lambda,
+                                                lisp_nil()))), env);
+                        }
+                    }
+                    return lisp_err("bad special form: define");
                 }
-                // TODO: cond, define
             }
             LispVal* evaluated = eval_each(expr, env);
             assert(evaluated->tag == LCONS);
@@ -161,6 +206,7 @@ LispVal* eval(LispVal* expr)
     return eval_with_env(expr, env);
 }
 
+
 LispVal* prim_plus(LispVal* args)
 {
     int result = 0;
@@ -168,7 +214,7 @@ LispVal* prim_plus(LispVal* args)
         if (args->head->tag == LNUM)
             result += args->head->number;
         else
-            return lisp_nil();
+            return lisp_err("+: invalid type, expected number");
         args = args->tail;
     }
     return lisp_num(result);
@@ -181,19 +227,41 @@ LispVal* prim_multiply(LispVal* args)
         if (args->head->tag == LNUM)
             result *= args->head->number;
         else
-            return lisp_nil();
+            return lisp_err("*: invalid type, expected number");
         args = args->tail;
     }
     return lisp_num(result);
 }
 
-// Assume well formed list
-int list_length(LispVal* list)
+LispVal* prim_subtract(LispVal* args)
 {
-    int result = 0;
-    for (; list->tag != LNIL; list = list->tail)
-        result++;
-    return result;
+    if (args->tag != LCONS)
+        return lisp_err("-: expected at least 1 arg");
+    if (args->head->tag != LNUM)
+        return lisp_err("-: invalid type, expected number");
+    int result = args->head->number;
+    args = args->tail;
+
+    if (args->tag == LCONS) {
+        while (args->tag == LCONS) {
+            if (args->head->tag == LNUM)
+                result -= args->head->number;
+            else
+                return lisp_err("-: invalid type, expected number");
+            args = args->tail;
+        }
+        return lisp_num(result);
+    } else {
+        return lisp_num(-result);
+    }
+}
+
+
+// type tests
+
+LispVal* is_bool(LispVal* args)
+{
+    return lisp_bool(args->head->tag == LBOOL);
 }
 
 LispVal* is_atom(LispVal* args)
@@ -201,10 +269,22 @@ LispVal* is_atom(LispVal* args)
     return lisp_bool(args->head->tag == LATOM);
 }
 
+LispVal* is_procedure(LispVal* args)
+{
+    return lisp_bool(args->head->tag == LLAM || args->head->tag == LPRIM);
+}
+
+LispVal* is_pair(LispVal* args)
+{
+    return lisp_bool(args->head->tag == LCONS);
+}
+
 LispVal* is_number(LispVal* args)
 {
     return lisp_bool(args->head->tag == LNUM);
 }
+// char, vector, string, port
+
 
 LispVal* prim_cons(LispVal* args)
 {
@@ -235,6 +315,42 @@ LispVal* prim_cdr(LispVal* args)
     return args->head->tail;
 }
 
+LispVal* prim_eqv(LispVal* args)
+{
+    if (list_length(args) != 2) {
+        return lisp_err("eqv?: expected 2 args");
+    }
+    // eqv? sounds like it has the properties of a memcmp
+    // 
+    return lisp_bool(
+            memcmp(args->head, args->tail->head, sizeof *args->head) == 0);
+}
+
+_Bool help_equal(LispVal* left, LispVal* right)
+{
+    if (left->tag == right->tag) {
+        if (left->tag == LCONS) {
+            if (!help_equal(left->head, right->head)) {
+                return 0;
+            }
+            return help_equal(left->tail, right->tail);
+        }
+        // TODO: strcmp for strings
+        return memcmp(left, right, sizeof *left) == 0;
+    }
+    return 0;
+}
+
+LispVal* prim_equal(LispVal* args)
+{
+    if (list_length(args) != 2) {
+        return lisp_err("eqv?: expected 2 args");
+    }
+    LispVal* left = args->head;
+    LispVal* right = args->tail->head;
+    return lisp_bool(help_equal(left, right));
+}
+
 LispVal* add_prim(Symbol symbol, primfunc primop, LispVal* env)
 {
     return lisp_cons(
@@ -248,12 +364,19 @@ void initialize_evaluator()
 {
     env = lisp_nil();
     // TODO: add more primitive operations
+    env = add_prim(sym("boolean?"), is_bool, env);
+    env = add_prim(sym("symbol?"), is_atom, env);
+    env = add_prim(sym("procedure?"), is_procedure, env);
+    env = add_prim(sym("pair?"), is_pair, env);
+    env = add_prim(sym("number?"), is_number, env);
+    env = add_prim(sym("eqv?"), prim_eqv, env);
+    env = add_prim(sym("eq?"), prim_eqv, env);
+    env = add_prim(sym("equal?"), prim_equal, env); // this doesn't really need to be prim
     env = add_prim(sym("+"), prim_plus, env);
     env = add_prim(sym("*"), prim_multiply, env);
+    env = add_prim(sym("-"), prim_subtract, env);
     env = add_prim(sym("cons"), prim_cons, env);
     env = add_prim(sym("car"), prim_car, env);
     env = add_prim(sym("cdr"), prim_cdr, env);
-    env = add_prim(sym("symbol?"), is_atom, env);
-    env = add_prim(sym("number?"), is_number, env);
 }
 
