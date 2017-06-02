@@ -242,8 +242,8 @@ void copy_and_trace_value(
 
         const int tag = (*current)->tag;
         if (!(tag >= 0 && tag <= LERROR)) {
-            fprintf(stderr, "gc: bad tag: %d (0x%x)\n", tag, tag);
-
+            if (verbose_gc)
+                fprintf(stderr, "gc: bad tag: %d (0x%x)\n", tag, tag);
             // Look up in copy_mapping
             int offset = ((void*)*current) - heaps[heap_idx ^ 1];
             int found = 0;
