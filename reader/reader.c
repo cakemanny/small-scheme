@@ -31,11 +31,24 @@ tagged_stype* pop_val()
     return NULL;
 }
 
+static const char* macro_name(int c)
+{
+    switch (c) {
+        case '\'': return "quote";
+        case '`': return "quasiquote";
+        case ',': return "unquote";
+        case COMMA_AT: return "unquote-splicing";
+    }
+    return NULL;
+}
+
 void push_lispval(LispVal* lv)
 {
-    while (rs_ptr > reader_stack && rs_ptr[-1].tag == '\'') {
-        lv = lisp_cons(lisp_atom(sym("quote")), lisp_cons(lv, lisp_nil()));
+    const char* mn_inst = NULL;
+    while (rs_ptr > reader_stack && (mn_inst = macro_name(rs_ptr[-1].tag))) {
+        lv = lisp_cons(lisp_atom(sym(mn_inst)), lisp_cons(lv, lisp_nil()));
         pop_val();
+        mn_inst = NULL;
     }
     push_val((tagged_stype){
         .tag = LISPVAL,
@@ -53,6 +66,7 @@ static LispVal* reader_read()
             fprintf(stderr, "LEXVAL = \"%c\" 0x%x, %d\n", lexval, lexval, lexval);
         }
 
+lexswitch:
         switch (lexval) {
             case ERROR:
             {
@@ -96,6 +110,14 @@ static LispVal* reader_read()
                     // build the list up from it's tail
                     if (top->tag == LISPVAL) {
                         thelist = lisp_cons(top->sval.value, thelist);
+                    } else if (top->tag == '.') {
+                        if (thelist->tag == LCONS && thelist->tail->tag == LNIL) {
+                            // (...<rest> . <r1>)
+                            thelist = thelist->head;
+                        } else {
+                            fprintf(stderr, "syntax error: . placement\n");
+                            // don't actually do anything
+                        }
                     } else {
                         // TODO: what happens here!
                     }
@@ -107,8 +129,97 @@ static LispVal* reader_read()
                 //mark_safepoint(); // communicate with the collector
                 break;
             }
+            case '#':
+            {
+                // TODO !! perhaps we could deal with some
+                // of this in the lexer instead...?
+                lexval = yylex();
+                switch (lexval) {
+                    case '(':
+                        // TODO: vector
+                        break;
+                    case '\\':
+                        // TODO: character
+                        lexval = yylex();
+                        switch (lexval) {
+                            case '.':
+                            case '\'':
+                            case '`':
+                            case ',':
+                            case ' ':
+                            case '\t':
+                            case '\f':
+                            case '\v':
+                            case '(':
+                            case ')':
+                                push_lispval(lisp_char(lexval));
+                                break;
+                            case COMMA_AT:
+                                // TODO
+                                break;
+                            case VAR:
+                                // Check for character names
+                                // like #\space
+                                if (sym_equal(sym("space"), yylval.id)) {
+                                    push_lispval(lisp_char(' '));
+                                } else if (sym_equal(sym("newline"), yylval.id)) {
+                                    push_lispval(lisp_char('\n'));
+                                } else if (sym_equal(sym("tab"), yylval.id)) {
+                                    push_lispval(lisp_char('\t'));
+                                } else if (strlen(symtext(yylval.id)) == 1) {
+                                    push_lispval(lisp_char(
+                                                symtext(yylval.id)[0]));
+                                } else {
+                                    // unknown character name
+                                    fprintf(stderr,
+                                            "unknown character name: %s\n",
+                                            symtext(yylval.id));
+                                    rs_ptr = reader_stack;
+                                    return NULL;
+                                }
+                                break;
+                            case 0:
+                                return NULL; // EOF
+                            case NUM:
+                                // TODO: 0-9 should be fine
+                            default:
+                                // ignore?
+                                continue;
+                        }
+                        break;
+                    case VAR:
+                        if (sym_equal(sym("t"), yylval.id)) {
+                            push_lispval(lisp_bool(1));
+                        } else if (sym_equal(sym("f"), yylval.id)) {
+                            push_lispval(lisp_bool(0));
+                        } else {
+                            // combine the # with the symbol?
+                            // error?
+                            fprintf(stderr, "unknown reader macro #%s\n",
+                                    symtext(yylval.id));
+                            rs_ptr = reader_stack;
+                            return NULL;
+                        }
+                        break;
+                    case 0:
+                        return NULL; // EOF
+                    default:
+                        push_lispval(lisp_atom(sym("#")));
+                        goto lexswitch;
+                }
+                break;
+            }
+            case '.':
             case '\'':
-                push_val((tagged_stype){ .tag = '\'' });
+            case '`':
+            case ',':
+            case COMMA_AT:
+                push_val((tagged_stype){ .tag = lexval });
+                continue;
+            case ' ':
+            case '\t':
+            case '\f':
+            case '\v':
                 continue;
             default:
                 fprintf(stderr, "%c\n", lexval);

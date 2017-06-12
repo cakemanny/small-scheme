@@ -2,8 +2,9 @@
 #include "ast.h"
 #include "runtime.h"
 
-static const char* tag_names[6] =
-    { "LATOM", "LNUM", "LCONS", "LNIL", "LPRIM", "LLAM" };
+static const char* tag_names[9] = {
+    "LATOM", "LNUM", "LCONS", "LNIL", "LLAM", "LPRIM", "LBOOL", "LERROR", "LCHAR"
+};
 
 const char* lv_tagname(LispVal* value)
 {
@@ -74,6 +75,12 @@ LispVal* lisp_err(const char* error_msg)
     return result;
 }
 
+LispVal* lisp_char(int character)
+{
+    LispVal* result = lispval(LCHAR);
+    result->character = character;
+    return result;
+}
 
 
 void print_lispval(FILE* out, LispVal* value)
@@ -117,6 +124,17 @@ void print_lispval(FILE* out, LispVal* value)
             break;
         case LERROR:
             fprintf(out, "error: %s", value->error_msg);
+            break;
+        case LCHAR:
+            if (value->character == ' ') {
+                fprintf(out, "#\\space");
+            } else if (value->character == '\n') {
+                fprintf(out, "#\\newline");
+            } else if (value->character == '\t') {
+                fprintf(out, "#\\tab");
+            } else {
+                fprintf(out, "#\\%c", value->character);
+            }
             break;
     }
 }

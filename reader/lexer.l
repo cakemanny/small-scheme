@@ -16,18 +16,19 @@ NUM     [-+]?(0|[1-9][0-9]*)
 
 %%
 
-;.*$        /* swallow comments */
+;.*$            /* swallow comments */
 
-{VAR}       { yylval.id = sym(yytext); return VAR; }
+{VAR}           { yylval.id = sym(yytext); return VAR; }
 
-{NUM}       { yylval.id = sym(yytext); return NUM; }
+{NUM}           { yylval.id = sym(yytext); return NUM; }
 
-[()#',.@]   { return yytext[0]; }
+,@              { return COMMA_AT; }
+[()#',.@`\\]    { return yytext[0]; }
 
-[ \t\f\v]   /* swallow */
-[\n]        { yylineno++; }
+[ \t\f\v]       { return yytext[0]; } /* ignored by the reader in most cases */
+[\n]            { yylineno++; }
 
-.           { yylval.err_char = yytext[0]; return ERROR; }
+.               { yylval.err_char = yytext[0]; return ERROR; }
 
 %%
 

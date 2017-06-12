@@ -97,6 +97,7 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
         case LPRIM: // The lambda is itself
         case LBOOL:
         case LERROR:
+        case LCHAR:
             return expr;
         case LATOM:
         {
@@ -283,7 +284,12 @@ LispVal* is_number(LispVal* args)
 {
     return lisp_bool(args->head->tag == LNUM);
 }
-// char, vector, string, port
+
+LispVal* is_char(LispVal* args)
+{
+    return lisp_bool(args->head->tag == LCHAR);
+}
+// vector, string, port
 
 
 LispVal* prim_cons(LispVal* args)
@@ -364,6 +370,7 @@ void initialize_evaluator()
 {
     env = lisp_nil();
     // TODO: add more primitive operations
+    env = add_prim(sym("char?"), is_char, env);
     env = add_prim(sym("boolean?"), is_bool, env);
     env = add_prim(sym("symbol?"), is_atom, env);
     env = add_prim(sym("procedure?"), is_procedure, env);

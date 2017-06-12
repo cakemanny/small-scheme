@@ -126,6 +126,7 @@ static _Bool is_self_evaluating(LispVal* expr)
         case LPRIM:
         case LBOOL:
         case LERROR:
+        case LCHAR:
             return 1;
         case LATOM:
         case LCONS:

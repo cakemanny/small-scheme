@@ -9,6 +9,7 @@ enum LispTok {
     NUM,
     VAR,
     LISPVAL,
+    COMMA_AT,
 };
 
 union yystype {
