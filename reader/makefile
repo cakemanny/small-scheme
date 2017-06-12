@@ -4,9 +4,9 @@ CFLAGS=-std=gnu11 -g -Wall # -fsanitize=address
 LDFLAGS=
 LDLIBS=
 
-HEADERS := symbol.h tokens.h ast.h runtime.h
+HEADERS := symbol.h tokens.h ast.h runtime.h evaluator.h eval2.h
 
-reader: lexer.o reader.o symbol.o runtime.o ast.o evaluator.o misc.o
+reader: lexer.o reader.o symbol.o runtime.o ast.o evaluator.o misc.o eval2.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 %.o: %.c $(HEADERS)

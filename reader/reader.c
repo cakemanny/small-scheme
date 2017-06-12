@@ -4,6 +4,7 @@
 #include "reader.h"
 #include "runtime.h"
 #include "evaluator.h"
+#include "eval2.h"
 
 int debug_lexer = 0;
 int debug_reader = 0;
@@ -133,11 +134,14 @@ extern int verbose_gc;
 
 int main(int argc, char** argv)
 {
+    int use_eval2 = 0;
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
             if (strcmp(argv[i], "-v") == 0) {
                 verbose_gc = 1;
                 debug_reader = 1;
+            } else if (strcmp(argv[i], "-2") == 0) {
+                use_eval2 = 1;
             } else {
                 fprintf(stderr, "unknown flag: -%c", argv[i][1]);
             }
@@ -150,7 +154,11 @@ int main(int argc, char** argv)
         }
     }
     initialize_heap(512 * 1024);
-    initialize_evaluator();
+    if (use_eval2) {
+        initialize_evaluator2();
+    } else {
+        initialize_evaluator();
+    }
     // initialise the reader stack
     reader_stack = calloc(1024, sizeof *reader_stack);
     if (!reader_stack) { perror("out of memory"); abort(); }
@@ -173,7 +181,7 @@ int main(int argc, char** argv)
             continue;
         //print_lispval(stdout, value);
         //printf("\n");
-        LispVal* evaluated = eval(value);
+        LispVal* evaluated = (use_eval2) ? eval2(value) : eval(value);
         print_lispval(stdout, evaluated);
         printf("\n");
 
