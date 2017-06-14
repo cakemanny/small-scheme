@@ -63,12 +63,14 @@ void print_heap_state()
 {
     fprintf(stderr, "- heap used: %.2f\n", pct_full());
     fprintf(stderr, "- num collections: %lld\n", gc_stats.num_collections);
-    double avg_bytes_retainded =
+    double avg_bytes_retained =
         ((double)gc_stats.total_bytes_retained)
             / ((double)gc_stats.num_collections);
-    fprintf(stderr, "- avg heap retained (bytes): %lf\n", avg_bytes_retainded);
+    fprintf(stderr, "- avg heap retained (bytes): %lf\n", avg_bytes_retained);
     fprintf(stderr, "- avg heap retained (proportion): %f\n",
-            avg_bytes_retainded / ((double)heap_size));
+            avg_bytes_retained / ((double)heap_size));
+    fprintf(stderr, "- total bytes allocated: %lld\n",
+            gc_stats.total_bytes_allocated);
 }
 
 void mark_safepoint()

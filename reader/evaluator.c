@@ -7,6 +7,7 @@ int debug_evaluator = 0;
 LispVal* env; // Global environment
 
 static LispVal* eval_with_env(LispVal* expr, LispVal* env);
+static LispVal* eval_quasi(LispVal* template, LispVal* env, int quote_level);
 
 static LispVal* apply(LispVal* fn, LispVal* args)
 {
@@ -80,6 +81,87 @@ static int list_length(LispVal* list)
     return result;
 }
 
+static _Bool is_the_atom(const char* symbol, LispVal* val)
+{
+    return val->tag == LATOM && sym_equal(val->atom, sym(symbol));
+}
+
+static LispVal* eval_each_quasi(LispVal* list, LispVal* env, int quote_level)
+{
+    if (list->tag == LNIL) {
+        return list;
+    } else if (list->tag == LCONS) {
+        LispVal* head = list->head;
+        if (quote_level == 0 && good_list(head)
+                && list_length(head) == 2
+                && is_the_atom("unquote-splicing", head->head)) {
+            // (... (unquote-splicing <val>) ...)
+            LispVal* evalled_tail = eval_each_quasi(list->tail, env, 0);
+            LispVal* unquoted = eval_with_env(head->tail->head, env);
+            if (!good_list(unquoted)) {
+                return lisp_err("unquote-splicing must expand to a list");
+            }
+            if (unquoted->tag == LNIL)
+                return evalled_tail;
+            // splice evalled_tail onto end of unquoted
+            for (LispVal* e = unquoted; e->tag != LNIL; e = e->tail) {
+                if (e->tail->tag == LNIL) {
+                    e->tail = evalled_tail;
+                    break;
+                }
+            }
+            return unquoted;
+        }
+        return lisp_cons(
+                eval_quasi(list->head, env, quote_level),
+                eval_each_quasi(list->tail, env, quote_level));
+    } else {
+        // TODO: error
+        fprintf(stderr, "bad list: ");
+        print_lispval(stderr, list);
+        fputs("\n", stderr);
+        return lisp_nil();
+    }
+}
+
+static LispVal* eval_quasi(LispVal* template, LispVal* env, int quote_level)
+{
+    if (good_list(template)) {
+        if (list_length(template) == 2) {
+            if (quote_level == 0) {
+                if (is_the_atom("unquote", template->head)) {
+                    return eval_with_env(template->tail->head, env);
+                } else if (is_the_atom("unquote-splicing", template->head)) {
+                    return lisp_err("unquote-splicing must be inside a list");
+                }
+            } else {
+                if (is_the_atom("unquote", template->head)
+                        || is_the_atom("unquote-splicing", template->head)) {
+                    // decrease quote-level
+                    return lisp_cons(
+                            template->head, // unquote/unquote-splicing
+                            lisp_cons(
+                                eval_quasi(template->tail->head, env, quote_level - 1),
+                                lisp_nil()));
+                } else if (is_the_atom("quasiquote", template->head)) {
+                    // increase quote-level
+                    return lisp_cons(
+                            template->head, // quasiquote
+                            lisp_cons(
+                                eval_quasi(template->tail->head, env, quote_level + 1),
+                                lisp_nil()));
+                }
+            }
+        }
+
+        // Not an unquote or an unquote-splicing but is a list
+        return eval_each_quasi(template, env, quote_level);
+    }
+    // Not a list
+    // (later we may need to consider vectors)
+    return template;
+}
+
 static LispVal* eval_with_env(LispVal* expr, LispVal* env)
 {
     if (debug_evaluator) {
@@ -127,6 +209,7 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
                     if (!good_list(expr) || list_length(expr) != 3) {
                         return lisp_err("bad special form");
                     }
+                    // TODO: support rest args
                     LispVal* params = expr->tail->head;
                     if (!good_list(params)) {
                         return lisp_err("bad special form: params must be list");
@@ -193,6 +276,19 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
                         }
                     }
                     return lisp_err("bad special form: define");
+                } else if (sym_equal(head->atom, sym("quasiquote"))) {
+                    if (!good_list(expr)) {
+                        return lisp_err("bad special form: quasiquote");
+                    }
+                    if (list_length(expr) != 2) {
+                        return lisp_err("wrong number of arguments to special "
+                                "form: quasiquote");
+                    }
+                    return eval_quasi(expr->tail->head, env, 0);
+                } else if (sym_equal(head->atom, sym("unquote"))) {
+                    return lisp_err("unquote must be in quasiquote");
+                } else if (sym_equal(head->atom, sym("unquote-splicing"))) {
+                    return lisp_err("unquote-splicing must be in quasiquote");
                 }
             }
             LispVal* evaluated = eval_each(expr, env);
@@ -357,6 +453,13 @@ LispVal* prim_equal(LispVal* args)
     return lisp_bool(help_equal(left, right));
 }
 
+LispVal* prim_print_heap_state(LispVal* args)
+{
+    void print_heap_state(); // runtime.c
+    print_heap_state();
+    return lisp_nil();
+}
+
 LispVal* add_prim(Symbol symbol, primfunc primop, LispVal* env)
 {
     return lisp_cons(
@@ -385,5 +488,7 @@ void initialize_evaluator()
     env = add_prim(sym("cons"), prim_cons, env);
     env = add_prim(sym("car"), prim_car, env);
     env = add_prim(sym("cdr"), prim_cdr, env);
+
+    env = add_prim(sym("print-heap-state"), prim_print_heap_state, env);
 }
 

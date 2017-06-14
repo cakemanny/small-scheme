@@ -242,6 +242,7 @@ lexswitch:
 void set_stack_high(void** stack_high);
 void set_stack_low(void** stack_low);
 extern int verbose_gc;
+extern int debug_evaluator;
 
 int main(int argc, char** argv)
 {
@@ -249,8 +250,16 @@ int main(int argc, char** argv)
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
             if (strcmp(argv[i], "-v") == 0) {
+                if (verbose_gc) {
+                    debug_evaluator = 1;
+                } else {
+                    verbose_gc = 1;
+                    debug_reader = 1;
+                }
+            } else if (strcmp(argv[i], "-vv") == 0) {
                 verbose_gc = 1;
                 debug_reader = 1;
+                debug_evaluator = 1;
             } else if (strcmp(argv[i], "-2") == 0) {
                 use_eval2 = 1;
             } else {
