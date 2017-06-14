@@ -243,6 +243,7 @@ void set_stack_high(void** stack_high);
 void set_stack_low(void** stack_low);
 extern int verbose_gc;
 extern int debug_evaluator;
+extern int debug_eval2;
 
 int main(int argc, char** argv)
 {
@@ -252,6 +253,7 @@ int main(int argc, char** argv)
             if (strcmp(argv[i], "-v") == 0) {
                 if (verbose_gc) {
                     debug_evaluator = 1;
+                    debug_eval2 = 1;
                 } else {
                     verbose_gc = 1;
                     debug_reader = 1;
@@ -260,6 +262,7 @@ int main(int argc, char** argv)
                 verbose_gc = 1;
                 debug_reader = 1;
                 debug_evaluator = 1;
+                debug_eval2 = 1;
             } else if (strcmp(argv[i], "-2") == 0) {
                 use_eval2 = 1;
             } else {

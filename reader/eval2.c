@@ -37,7 +37,7 @@
 #define UNKNOWN_EXPR_ERROR          ROUTINE(98LL)
 #define UNKNOWN_PROC_TYPE_ERROR     ROUTINE(99LL)
 
-int debug_eval2 = 1;
+int debug_eval2 = 0;
 
 LispVal* expr2; // expression to be evaluted
 LispVal* env2; // evaluation environment

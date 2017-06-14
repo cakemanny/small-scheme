@@ -112,8 +112,10 @@ void print_lispval(FILE* out, LispVal* value)
         case LLAM:
             fprintf(out, "(lambda ");
             print_lispval(out, value->params);
-            fputc(' ', out);
-            print_lispval(out, value->body);
+            for (LispVal* e = value->body; e->tag == LCONS; e = e->tail) {
+                fputc(' ', out);
+                print_lispval(out, e->head);
+            }
             fputc(')', out);
             break;
         case LPRIM:

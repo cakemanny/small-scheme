@@ -9,6 +9,16 @@ LispVal* env; // Global environment
 static LispVal* eval_with_env(LispVal* expr, LispVal* env);
 static LispVal* eval_quasi(LispVal* template, LispVal* env, int quote_level);
 
+static LispVal* eval_body(LispVal* expressions, LispVal* env)
+{
+    // Assume good list length > 1
+    LispVal* result = lisp_nil(); // just in case
+    for (LispVal* e = expressions; e->tag == LCONS; e = e->tail) {
+        result =  eval_with_env(e->head, env);
+    }
+    return result;
+}
+
 static LispVal* apply(LispVal* fn, LispVal* args)
 {
     if (fn->tag == LLAM) {
@@ -35,7 +45,7 @@ static LispVal* apply(LispVal* fn, LispVal* args)
             fputs("\n", stderr);
         }
         // eval body
-        return eval_with_env(fn->body, env_w_bound_args);
+        return eval_body(fn->body, env_w_bound_args);
     } else if (fn->tag == LPRIM) {
         return fn->cfunc(args);
     } else {
@@ -206,7 +216,7 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
             if (head->tag == LATOM) {
                 // Check for special forms
                 if (sym_equal(head->atom, sym("lambda"))) {
-                    if (!good_list(expr) || list_length(expr) != 3) {
+                    if (!good_list(expr) || list_length(expr) < 3) {
                         return lisp_err("bad special form");
                     }
                     // TODO: support rest args
@@ -220,7 +230,7 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
                                     "must be atoms");
                         }
                     }
-                    LispVal* body = expr->tail->tail->head;
+                    LispVal* body = expr->tail->tail;
                     return lisp_lam(params, body, env);
                 } else if (sym_equal(head->atom, sym("quote"))) {
                     if (!good_list(expr)) {
