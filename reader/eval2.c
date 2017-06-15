@@ -33,11 +33,15 @@
 #define EV_SEQUENCE                 ROUTINE(25LL)
 #define EV_SEQUENCE_CONT            ROUTINE(26LL)
 #define EV_SEQUENCE_LAST_EXP        ROUTINE(27LL)
+#define REVERSE_ARGS                ROUTINE(28LL)
 
+#define INCORRECT_NUM_ARGS          ROUTINE(97LL)
 #define UNKNOWN_EXPR_ERROR          ROUTINE(98LL)
 #define UNKNOWN_PROC_TYPE_ERROR     ROUTINE(99LL)
 
 int debug_eval2 = 0;
+
+LispVal* global_env;
 
 LispVal* expr2; // expression to be evaluted
 LispVal* env2; // evaluation environment
@@ -360,6 +364,8 @@ static void eval2_main_loop()
                 if (val2 == NULL) {
                     fprintf(stderr, "var not found: %s\n", symtext(expr2->atom));
                     val2 = lisp_err("variable not found");
+                    pc = DONE;
+                    break;
                 }
                 pc = continue2;
                 break;
@@ -384,7 +390,11 @@ static void eval2_main_loop()
                 restore(&unev2);
                 // begin: define-variable!
                 unev2 = lisp_cons(unev2, val2);
-                env2 = lisp_cons(unev2, env2);
+                if (env2 == global_env) {
+                    global_env = env2 = lisp_cons(unev2, env2);
+                } else {
+                    env2 = lisp_cons(unev2, env2);
+                }
                 // end: define-variable!
                 pc = continue2;
                 break;
@@ -439,9 +449,13 @@ static void eval2_main_loop()
             case EVAL_ARGS:
                 restore(&unev2);
                 restore(&env2);
-                fun2 = val2;
-                save(fun2);
                 argl2 = lisp_nil(); // Want to make this not allocate...
+                fun2 = val2;
+                if (is_nil(unev2)) {
+                    pc = APPLY_DISPATCH;
+                    break;
+                }
+                save(fun2);
                 pc = EVAL_ARG_LOOP; /* would probably make sense to just
                                        fall-through */
                 break;
@@ -473,6 +487,20 @@ static void eval2_main_loop()
                 restore(&argl2);
                 argl2 = lisp_cons(val2, argl2);
                 restore(&fun2);
+                // We now have the evaluated arguments but in reverse order
+                // in argl2. So let's reverse them
+                unev2 = lisp_nil();
+                pc = REVERSE_ARGS;
+                break;
+            case REVERSE_ARGS: /* we can use a do-while loop since we have at
+                                  least 1 arg */
+                unev2 = lisp_cons(argl2->head, unev2);
+                argl2 = argl2->tail;
+                if (!is_nil(argl2)) {
+                    pc = REVERSE_ARGS;
+                    break;
+                }
+                argl2 = unev2;
                 pc = APPLY_DISPATCH;
                 break;
             case PRIMITIVE_APPLY:
@@ -490,9 +518,7 @@ static void eval2_main_loop()
                     if (is_nil(unev2) && is_nil(argl2)) {
                         pc = COMPOUND_APPLY_CONT;
                     } else {
-                        fprintf(stderr, "incorrect number of args\n");
-                        pc = COMPOUND_APPLY_CONT; /* not sure of the effect
-                                                     of not going here */
+                        pc = INCORRECT_NUM_ARGS;
                     }
                     break;
                 }
@@ -535,20 +561,26 @@ static void eval2_main_loop()
                 save(continue2);
                 pc = EV_SEQUENCE;
                 break;
+            case INCORRECT_NUM_ARGS:
+                fprintf(stderr, "error: applying function ");
+                print_lispval(stderr, fun2);
+                fprintf(stderr, "\n");
+                val2 = lisp_err("incorrect-number-of-args");
+                pc = DONE;
+                break;
             case UNKNOWN_EXPR_ERROR:
                 fprintf(stderr, "error: unknown expression: ");
                 print_lispval(stderr, expr2);
                 fprintf(stderr, "\n");
                 val2 = lisp_err("unknown-expression");
-                pc = continue2; /* Need to let it restore the stack back to
-                                   normal */
+                pc = DONE;
                 break;
             case UNKNOWN_PROC_TYPE_ERROR:
                 fprintf(stderr, "error: unknown proc type: ");
                 print_lispval(stderr, expr2);
                 fprintf(stderr, "\n");
                 val2 = lisp_err("unknown-proc-type");
-                pc = continue2;
+                pc = DONE;
                 break;
             default:
                 fprintf(stderr, "unknown operation\n");
@@ -564,19 +596,43 @@ LispVal* eval2(LispVal* expr)
     pc = EVAL_DISPATCH;
     continue2 = DONE;
     expr2 = expr;
-    // TODO: set env2 = global environment?
+    env2 = global_env;
+    sp = stack2;
     eval2_main_loop();
     // The result must now be in val2
     return val2;
 }
 
+static void add_prim(const char* symbol_text, primfunc primop)
+{
+    Symbol s = sym(symbol_text);
+    unev2 = lisp_atom(s);
+    val2 = lisp_prim(primop);
+    unev2 = lisp_cons(unev2, val2);
+    env2 = lisp_cons(unev2, env2);
+}
+
+LispVal* prim_plus(LispVal* args);
+LispVal* prim_multiply(LispVal* args);
+LispVal* prim_subtract(LispVal* args);
+LispVal* prim_eqv(LispVal* args);
+
 void initialize_evaluator2()
 {
     // set registers to nil
     env2 = lisp_nil();
-    unev2 = env2;
     argl2 = env2;
     val2 = env2;
     expr2 = env2;
+
+    // Add primitive ops to the environment
+
+    add_prim("eqv?", prim_eqv);
+    add_prim("eq?", prim_eqv);
+    add_prim("+", prim_plus);
+    add_prim("*", prim_multiply);
+    add_prim("-", prim_subtract);
+    unev2 = val2 = argl2 = expr2; // Should still be nil
+    global_env = env2;
 }
 
