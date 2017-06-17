@@ -21,6 +21,7 @@ struct LispVal {
         LBOOL,
         LERROR,
         LCHAR,
+        LMAC,
     } tag;
     union {
         Symbol atom; // LATOM
@@ -29,7 +30,7 @@ struct LispVal {
             LispVal* head;
             LispVal* tail;
         };
-        struct { // LLAM
+        struct { // LLAM || LMAC
             LispVal* params;
             LispVal* body;
             LispVal* closure;
@@ -47,6 +48,7 @@ LispVal* lisp_num(int number);
 LispVal* lisp_cons(LispVal* head, LispVal* tail);
 LispVal* lisp_nil();
 LispVal* lisp_lam(LispVal* params, LispVal* body, LispVal* closure);
+LispVal* lisp_macro(LispVal* params, LispVal* body, LispVal* closure);
 LispVal* lisp_prim(primfunc cfunc);
 LispVal* lisp_bool(_Bool boolean);
 LispVal* lisp_err(const char* error_msg);

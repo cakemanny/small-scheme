@@ -131,6 +131,7 @@ static _Bool is_self_evaluating(LispVal* expr)
         case LBOOL:
         case LERROR:
         case LCHAR:
+        case LMAC:
             return 1;
         case LATOM:
         case LCONS:
@@ -239,8 +240,8 @@ static void print_reg(const char* regname, LispVal* reg)
 }
 static const char* routine_name(long long routine) {
     int routine_idx = routine >> 3LL;
-    if (routine_idx <= 27 && routine_idx >= 0) {
-        return ((const char*[]){
+    if (routine_idx <  29 && routine_idx >= 0) {
+        return ((const char*[29]){
             "DONE",
             "EVAL_DISPATCH",
             "APPLY_DISPATCH",
@@ -268,7 +269,8 @@ static const char* routine_name(long long routine) {
             "EXTEND_ENV_LOOP",
             "EV_SEQUENCE",
             "EV_SEQUENCE_CONT",
-            "EV_SEQUENCE_LAST_EXP"
+            "EV_SEQUENCE_LAST_EXP",
+            "REVERSE_ARGS"
         })[routine_idx];
     }
     return "(unknown)";

@@ -300,7 +300,7 @@ void copy_and_trace_value(
                 // Allow us to loop! (would be a recurse in a functional
                 // language)
                 continue;
-            } else if (tag == LLAM) {
+            } else if (tag == LLAM || tag == LMAC) {
                 if (verbose_gc)
                     fprintf(stderr, "it's a lambda, follow params, save body "
                             "and closure\n");

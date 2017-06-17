@@ -2,8 +2,8 @@
 #include "ast.h"
 #include "runtime.h"
 
-static const char* tag_names[9] = {
-    "LATOM", "LNUM", "LCONS", "LNIL", "LLAM", "LPRIM", "LBOOL", "LERROR", "LCHAR"
+static const char* tag_names[10] = {
+    "LATOM", "LNUM", "LCONS", "LNIL", "LLAM", "LPRIM", "LBOOL", "LERROR", "LCHAR", "LMAC"
 };
 
 const char* lv_tagname(LispVal* value)
@@ -53,6 +53,16 @@ LispVal* lisp_lam(LispVal* params, LispVal* body, LispVal* closure)
     result->closure = closure;
     return result;
 }
+
+LispVal* lisp_macro(LispVal* params, LispVal* body, LispVal* closure)
+{
+    LispVal* result = lispval(LMAC);
+    result->params = params;
+    result->body = body;
+    result->closure = closure;
+    return result;
+}
+
 
 LispVal* lisp_prim(primfunc cfunc)
 {
@@ -111,6 +121,15 @@ void print_lispval(FILE* out, LispVal* value)
             break;
         case LLAM:
             fprintf(out, "(lambda ");
+            print_lispval(out, value->params);
+            for (LispVal* e = value->body; e->tag == LCONS; e = e->tail) {
+                fputc(' ', out);
+                print_lispval(out, e->head);
+            }
+            fputc(')', out);
+            break;
+        case LMAC:
+            fprintf(out, "(macro ");
             print_lispval(out, value->params);
             for (LispVal* e = value->body; e->tag == LCONS; e = e->tail) {
                 fputc(' ', out);

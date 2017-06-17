@@ -21,7 +21,7 @@ static LispVal* eval_body(LispVal* expressions, LispVal* env)
 
 static LispVal* apply(LispVal* fn, LispVal* args)
 {
-    if (fn->tag == LLAM) {
+    if (fn->tag == LLAM || fn->tag == LMAC) {
         // bind args to fn environment
         LispVal* env_w_bound_args = fn->closure;
         if (debug_evaluator) {
@@ -190,6 +190,7 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
         case LBOOL:
         case LERROR:
         case LCHAR:
+        case LMAC: // The lambda is itself
             return expr;
         case LATOM:
         {
@@ -211,12 +212,17 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
         }
         case LCONS:
         {
+            if (!good_list(expr)) {
+                return lisp_err("proper list required for function "
+                        "application or macro use");
+            }
             // Evaluate a combination
             LispVal* const head = expr->head;
             if (head->tag == LATOM) {
                 // Check for special forms
-                if (sym_equal(head->atom, sym("lambda"))) {
-                    if (!good_list(expr) || list_length(expr) < 3) {
+                if (sym_equal(head->atom, sym("lambda"))
+                        || sym_equal(head->atom, sym("macro"))) {
+                    if (list_length(expr) < 3) {
                         return lisp_err("bad special form");
                     }
                     // TODO: support rest args
@@ -231,11 +237,11 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
                         }
                     }
                     LispVal* body = expr->tail->tail;
+                    if (sym_equal(head->atom, sym("macro"))) {
+                        return lisp_macro(params, body, env);
+                    }
                     return lisp_lam(params, body, env);
                 } else if (sym_equal(head->atom, sym("quote"))) {
-                    if (!good_list(expr)) {
-                        return lisp_err("bad special form: quote");
-                    }
                     if (list_length(expr) != 2) {
                         return lisp_err("wrong number of arguments to special "
                                 "form: quote");
@@ -243,7 +249,7 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
                     return expr->tail->head;
                 } else if (sym_equal(head->atom, sym("if"))) {
                     // (if <test> <consequent> <alternate>)
-                    if (!(good_list(expr) && list_length(expr) == 4)) {
+                    if (list_length(expr) != 4) {
                         return lisp_err("incorrect syntax for if");
                     }
                     LispVal* test_result = eval_with_env(expr->tail->head, env);
@@ -253,10 +259,18 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
                     } else {
                         return eval_with_env(expr->tail->tail->head, env);
                     }
+                } else if (sym_equal(head->atom, sym("eval"))) {
+                    if (list_length(expr) != 2) {
+                        return lisp_err("wrong number of args to eval");
+                    }
+                    return eval_with_env(
+                            eval_with_env(expr->tail->head, env), env);
+                } else if (sym_equal(head->atom, sym("begin"))) {
+                    return eval_body(expr->tail, env);
                 } else if (sym_equal(head->atom, sym("define"))) {
                     // (define <variable> <expression>)
                     // (define (<variable> <formals>) <expression>)
-                    if (!good_list(expr) || list_length(expr) != 3) {
+                    if (list_length(expr) != 3) {
                         return lisp_err("bad special form: define");
                     }
                     if (expr->tail->head->tag == LATOM) {
@@ -287,9 +301,6 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
                     }
                     return lisp_err("bad special form: define");
                 } else if (sym_equal(head->atom, sym("quasiquote"))) {
-                    if (!good_list(expr)) {
-                        return lisp_err("bad special form: quasiquote");
-                    }
                     if (list_length(expr) != 2) {
                         return lisp_err("wrong number of arguments to special "
                                 "form: quasiquote");
@@ -299,6 +310,17 @@ static LispVal* eval_with_env(LispVal* expr, LispVal* env)
                     return lisp_err("unquote must be in quasiquote");
                 } else if (sym_equal(head->atom, sym("unquote-splicing"))) {
                     return lisp_err("unquote-splicing must be in quasiquote");
+                } else {
+                    // Check if it's a macro!
+                    LispVal* op = eval_with_env(expr->head, env);
+                    if (op->tag == LMAC) {
+                        // we basically want to apply the lambda to the tail
+                        // then eval the result
+                        // In a compiler, these would be done in two separate
+                        // stages I think
+                        LispVal* expanded = apply(op, expr->tail);
+                        return eval_with_env(expanded, env);
+                    }
                 }
             }
             LispVal* evaluated = eval_each(expr, env);
