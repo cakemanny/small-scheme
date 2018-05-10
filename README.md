@@ -9,3 +9,12 @@ ml-like language.
 The interpreter is in the [reader](reader) subdirectory of this repository,
 the garbage collector in runtime.c
 
+Requirements
+------------
+The reader project requires libbsd on linux. On debian based systems, install
+as so:
+
+```shell
+# apt-get install libbsd-dev -y
+```
+

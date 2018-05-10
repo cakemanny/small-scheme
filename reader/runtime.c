@@ -1,6 +1,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#ifdef __linux__
+#  include <bsd/stdlib.h>
+#endif
 #include "ast.h"
 #include "tokens.h"
 #include "reader.h"

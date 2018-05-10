@@ -1,8 +1,15 @@
 
+SHELL=/bin/bash
+PLATFORM=$(shell uname)
+
 CC=clang
 CFLAGS=-std=gnu11 -g -Wall # -fsanitize=address
 LDFLAGS=
 LDLIBS=
+
+ifeq "$(PLATFORM)" "Linux"
+  LDLIBS+=-lbsd
+endif
 
 HEADERS := symbol.h tokens.h ast.h runtime.h evaluator.h eval2.h
 
