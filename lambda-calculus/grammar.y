@@ -27,8 +27,8 @@ int debug_parser = 0;
 
 %%
 
-prog: exp           { evaluate_last_expression($1) }
-    | prog exp      { evaluate_last_expression($2) }
+prog: exp           { evaluate_last_expression($1); }
+    | prog exp      { evaluate_last_expression($2); }
 ;
 
 exp:
