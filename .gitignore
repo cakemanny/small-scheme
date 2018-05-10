@@ -3,6 +3,7 @@
 *.output
 *.tab.[ch]
 small-scheme
+/ast-lang/ast-lang
 
 # Editor files
 .*.sw[po]
